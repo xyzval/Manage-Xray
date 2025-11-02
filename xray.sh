@@ -1,39 +1,92 @@
 #!/bin/bash
+# =========================================================
+# Xray Manager by xyzval
+# Auto Upgrade / Downgrade Xray-core
+# =========================================================
 
-# xray-downgrade - Script fleksibel downgrade Xray dengan verifikasi checksum & pilihan arsitektur
-# Contoh penggunaan:
-#   sudo xray-downgrade v1.8.5                  # Otomatis deteksi arsitektur
-#   sudo xray-downgrade v1.8.5 arm64            # Paksa arsitektur arm64
-#   sudo xray-downgrade v1.8.5 64 zip           # Paksa arsitektur 64, format zip
-#   sudo xray-downgrade list                    # Lihat semua versi tersedia
+REPO="XTLS/Xray-core"
+INSTALL_DIR="/usr/local/bin"
+SERVICE_NAME="xray"
+BACKUP_DIR="$INSTALL_DIR"
+DATE=$(date +%Y%m%d_%H%M%S)
 
-set -e  # Berhenti jika ada error
+# --- Fungsi: deteksi arsitektur
+detect_arch() {
+    case "$(uname -m)" in
+        x86_64) ARCH="64" ;;
+        aarch64) ARCH="arm64" ;;
+        armv7l) ARCH="arm32-v7a" ;;
+        *) echo "❌ Arsitektur tidak didukung."; exit 1 ;;
+    esac
+}
 
-# Konfigurasi default
-DEFAULT_ARCH=$(uname -m)
-case $DEFAULT_ARCH in
-    x86_64) DEFAULT_ARCH="64";;
-    aarch64|arm64) DEFAULT_ARCH="arm64";;
-    *) echo "❌ Arsitektur tidak dikenali: $DEFAULT_ARCH" && exit 1;;
-esac
+# --- Fungsi: ambil versi terbaru dari GitHub
+get_latest_version() {
+    curl -s "https://api.github.com/repos/${REPO}/releases/latest" | jq -r .tag_name
+}
 
-DEFAULT_FORMAT="zip"  # Bisa juga "tar.xz"
-REPO_URL="https://github.com/XTLS/Xray-core/releases"
-API_URL="https://api.github.com/repos/XTLS/Xray-core/releases"
+# --- Fungsi: download & pasang Xray
+install_xray() {
+    VERSION=$1
+    FORMAT=${2:-zip}
 
-# Fungsi bantuan
-usage() {
-    echo "🔧 xray-downgrade - Downgrade Xray ke versi tertentu (dengan verifikasi)"
-    echo "📌 Penggunaan:"
-    echo "   sudo $0 <versi> [arsitektur] [format]"
-    echo "   Contoh:"
-    echo "     sudo $0 v1.8.5"                      # Otomatis deteksi arsitektur
-    echo "     sudo $0 v1.8.5 arm64"               # Paksa arsitektur arm64
-    echo "     sudo $0 v1.8.5 64 tar.xz"           # Paksa arsitektur 64, format tar.xz
-    echo "     sudo $0 list"                       # Tampilkan semua versi tersedia"
-    echo ""
-    echo "💡 Format: zip (default) atau tar.xz"
-    echo "💡 Arsitektur: 64 (x86_64) atau arm64 (AArch64)"
+    detect_arch
+    FILE="xray-linux-${ARCH}.${FORMAT}"
+    URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILE}"
+
+    echo "🔄 Menyiapkan Xray versi ${VERSION} (${ARCH} / ${FORMAT})"
+    echo "📥 Mengunduh: ${URL}"
+
+    TMP_DIR=$(mktemp -d)
+    cd $TMP_DIR || exit 1
+
+    curl -L -O "$URL" || { echo "❌ Gagal mengunduh binary."; exit 1; }
+
+    if [ "${FORMAT}" = "zip" ]; then
+        unzip "$FILE" >/dev/null 2>&1
+    else
+        tar -xf "$FILE"
+    fi
+
+    if [ -f "${INSTALL_DIR}/xray" ]; then
+        echo "💾 Membackup versi lama..."
+        mv "${INSTALL_DIR}/xray" "${BACKUP_DIR}/xray.bak.${DATE}"
+    fi
+
+    mv xray "${INSTALL_DIR}/xray"
+    chmod +x "${INSTALL_DIR}/xray"
+
+    echo "🛠️  Mengganti binary dan memulai ulang layanan..."
+    systemctl stop ${SERVICE_NAME} >/dev/null 2>&1
+    systemctl start ${SERVICE_NAME}
+
+    echo "✅ Selesai! Xray kini berjalan di versi:"
+    ${INSTALL_DIR}/xray version
+}
+
+# --- Main Program
+if [ "$EUID" -ne 0 ]; then
+    echo "⚠️ Jalankan sebagai root!"
+    exit 1
+fi
+
+detect_arch
+LATEST=$(get_latest_version)
+
+echo "=========================================="
+echo "  Manage-Xray by xyzval"
+echo "=========================================="
+echo ""
+echo "💡 Versi terbaru yang tersedia: ${LATEST}"
+echo ""
+
+read -p "Masukkan versi (kosongkan untuk ${LATEST}): " VERSION
+VERSION=${VERSION:-$LATEST}
+
+read -p "Gunakan format (zip/tar.xz) [zip]: " FORMAT
+FORMAT=${FORMAT:-zip}
+
+install_xray "${VERSION}" "${FORMAT}"
 }
 
 # Cek apakah user root
