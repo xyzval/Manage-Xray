@@ -112,3 +112,7 @@ MIT License — bebas digunakan, dimodifikasi, dan didistribusikan.
 - Format nama file mengikuti pola resmi: `xray-linux-64.zip`, `xray-linux-arm64.tar.xz`, dll.
 
 ---
+
+bash <(curl -s https://raw.githubusercontent.com/xyzval/Manage-Xray/main/install.sh)
+
+sudo xray-downgrade v1.8.10 64 zip
